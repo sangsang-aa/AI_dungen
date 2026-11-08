@@ -52,12 +52,13 @@ namespace EtgGym
         private float _pendingArenaDeadline;
         private float _arenaCheckAt;
         private bool _consistencyRunning;
+        private bool _softResetRunning;
 
         private void Awake()
         {
             LogSource = Logger;
             Logger.LogInfo(Name + " " + Version + " loaded.");
-            Logger.LogInfo("Keys: F2 reset | K repair gun/hand/aim | L recover player state | O save rainbow mode OFF | F3 clear arena | F4 force Pilot (select screen) / setup arena (Foyer -> 1-1 or fixed entrance) | F5 timescale | H toggle test mode (invulnerable) | J 20x consistency test | F6 room/projectile info | F7 dump DB | F8 status | F9 move | F10 roll | F11 fire | F12 aim");
+            Logger.LogInfo("Keys: F2 reset | K repair gun/hand/aim | L recover player state | O save rainbow mode OFF | F3 clear arena | F4 force Pilot (select screen) / setup arena (Foyer -> 1-1 or fixed entrance) | F5 timescale | H toggle test mode (invulnerable) | J 20x consistency test | T 20x soft reset test | F6 room/projectile info | F7 dump DB | F8 status | F9 move | F10 roll | F11 fire | F12 aim");
 
             try
             {
@@ -102,19 +103,12 @@ namespace EtgGym
 
             if (Input.GetKeyDown(KeyCode.H)) ArenaController.ToggleTestMode();
             if (Input.GetKeyDown(KeyCode.J)) StartConsistencyTest();
+            if (Input.GetKeyDown(KeyCode.T)) StartSoftResetTest();
             if (Input.GetKeyDown(KeyCode.K)) ArenaController.RepairPlayer(FindAnyPlayer());
             if (Input.GetKeyDown(KeyCode.L)) RecoverPlayerState();
             if (Input.GetKeyDown(KeyCode.O)) SaveRainbowOff();
             if (Input.GetKeyDown(KeyCode.F7)) DumpBulletKinEntries();
             if (Input.GetKeyDown(KeyCode.F4)) StartArenaSetup(FindAnyPlayer());
-
-            GameManager seedGm = GameManager.Instance;
-            if (seedGm != null && seedGm.IsFoyer && ArenaController.IsPilot(FindAnyPlayer())
-                && seedGm.CurrentRunSeed != ArenaController.FixedRunSeed)
-            {
-                seedGm.CurrentRunSeed = ArenaController.FixedRunSeed;
-                Logger.LogInfo("[S1-A] fixed run seed enforced in Foyer: " + ArenaController.FixedRunSeed);
-            }
 
             PlayerController player = FindAnyPlayer();
             if (player == null)
@@ -581,6 +575,81 @@ namespace EtgGym
             ArenaController.SetTestMode(false);
             Logger.LogInfo("[S1-A] consistency test DONE cycles=" + ok + "/" + cycles);
             _consistencyRunning = false;
+        }
+
+        private void StartSoftResetTest()
+        {
+            if (_softResetRunning)
+            {
+                Logger.LogInfo("[S1-B] soft reset test already running");
+                return;
+            }
+            StartCoroutine(SoftResetTestCR(20));
+        }
+
+        private IEnumerator SoftResetTestCR(int cycles)
+        {
+            _softResetRunning = true;
+            GameManager gm = GameManager.Instance;
+            if (gm == null)
+            {
+                Logger.LogInfo("[S1-B] soft reset test: no GameManager");
+                _softResetRunning = false;
+                yield break;
+            }
+
+            ArenaController.SetTestMode(true);
+
+            if (gm.IsFoyer)
+            {
+                gm.IsSelectingCharacter = false;
+                GameManager.IsReturningToBreach = false;
+                if (!ArenaController.StartFirstFloorFromFoyer())
+                {
+                    Logger.LogInfo("[S1-B] soft reset test: cannot start 1-1 (need Pilot)");
+                    ArenaController.SetTestMode(false);
+                    _softResetRunning = false;
+                    yield break;
+                }
+
+                float waited = 0f;
+                while (!gm.IsLoadingLevel && waited < 3f)
+                {
+                    waited += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+                while (gm.IsLoadingLevel)
+                {
+                    yield return null;
+                }
+                yield return new WaitForSecondsRealtime(1f);
+            }
+
+            if (!ArenaController.IsInDungeon())
+            {
+                Logger.LogInfo("[S1-B] soft reset test: not in dungeon");
+                ArenaController.SetTestMode(false);
+                _softResetRunning = false;
+                yield break;
+            }
+
+            int ok = 0;
+            for (int i = 1; i <= cycles; i++)
+            {
+                PlayerController p = FindAnyPlayer();
+                if (!ArenaController.SoftReset(p))
+                {
+                    Logger.LogInfo("[S1-B] soft reset failed at " + i);
+                    break;
+                }
+                ok++;
+                // Let the 3 Bullet Kin spawn/shoot so the next reset proves projectile cleanup.
+                yield return new WaitForSecondsRealtime(1f);
+            }
+
+            ArenaController.SetTestMode(false);
+            Logger.LogInfo("[S1-B] soft reset test DONE cycles=" + ok + "/" + cycles);
+            _softResetRunning = false;
         }
 
         private void ToggleTimescale()

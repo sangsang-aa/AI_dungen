@@ -261,6 +261,7 @@ public static class StaticReferenceManager
 - 为了满足 E4 的 Harmony 验证，插件同时挂了 `Projectile.Start`、`OnDespawned`、`OnDestroy` 三个 postfix，维护 `HashSet<Projectile>`。
 - 实测计数一致：`static=1, harmony=1, find=1`；累计 `added=94, removed=93`。
 - `FindObjectsOfType<Projectile>()` 也能用，但每帧调用开销大，只适合调试/兜底。
+- **清子弹时注意**：`SpawnManager.Despawn` 只把对象回池，**不保证调用** `Projectile.OnDespawned`；必须先显式 `p.OnDespawned()`，否则 `StaticReferenceManager.AllProjectiles` 会保留已回池子弹（S1-B 实测累积 9 个不消失）。
 
 ## 9. HealthHaver
 

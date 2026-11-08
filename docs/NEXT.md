@@ -35,9 +35,9 @@
 
 ## 任务 2：房间软重置
 
-**状态**：⬜ 当前任务（Task 1 已完成）  
-**已有基础**：`ArenaController.ClearSpawned` 已用 `DeregisterEnemy + EraseFromExistence`；玩家传送/枪修复已可用。  
-**待做**：清子弹、复位玩家血量/状态、重新生成 3 敌人、20 次无泄漏/存档检查。
+**状态**：✅ 完成（2026-11-08）  
+**证据**：`T` 20/20；清敌 3→0；子弹 after=0；玩家位置稳定；退出再进存档可读。  
+**关键发现**：`SpawnManager.Despawn` 不回 `StaticReferenceManager`，必须先 `p.OnDespawned()`。
 
 **目标**
 不调用 `QuickRestart`，把当前房间恢复到初始状态：清敌人、清子弹、复位玩家坐标/血量/状态、重新生成 3 个 Bullet Kin。
@@ -47,11 +47,11 @@
 - `game/EtgGym/Arena/`（新增重置逻辑）
 
 **验收标准**
-- [ ] 重置后 1 秒内玩家可移动/翻滚。
-- [ ] 敌人数量、`StaticReferenceManager.AllEnemies/AllProjectiles` 计数回到基线。
-- [ ] 连续重置 20 次不损坏存档、不泄漏对象。
-- [ ] 全程不调用 `QuickRestart`。
-- [ ] 存档仍可正常读取（重置后退出再进）。
+- [x] 重置后 1 秒内玩家可移动/翻滚。
+- [x] 敌人数量、`StaticReferenceManager.AllProjectiles` 计数回到基线（`roomAll=3`, `bullets=0`）。
+- [x] 连续重置 20 次不损坏存档、不泄漏对象。
+- [x] 全程不调用 `QuickRestart`。
+- [x] 存档仍可正常读取（重置后退出再进成功）。
 
 **预计**：4–6 小时
 

@@ -211,7 +211,19 @@
 - **日期**：2026-11-08
 - **状态**：已采纳（S1-A）
 - **背景**：入口房间类别/尺寸稳定，但程序化生成导致 `basePosition` 和 clear spot 跨重启变化；不满足“固定房间/固定坐标”。
-- **决定**：在 Breach 进入 1-1 前设置 `GameManager.CurrentRunSeed = 20261108`；Foyer 里检测到 Pilot 时也强制该 seed。
+- **决定**：在 `StartFirstFloorFromFoyer` / `J` 真正开始 1-1 前设置 `GameManager.CurrentRunSeed = 20261108`；**不在 Foyer 每帧强制**（在主菜单阶段初始化会崩溃）。
 - **理由**：`Dungeon.GetDungeonSeed()` 使用 `CurrentRunSeed`，固定后两轮重启的 `base/dims`、玩家/敌人 local 完全一致。
 - **后果**：掉落/敌人等内容也被固定；训练泛化后续再评估随机 seed 或课程学习。
 - **替代**：固定 anchor（未使用）；随机 seed（不满足 S1-A）。
+
+---
+
+## ADR-017 软重置清子弹：先 OnDespawned 再回池
+
+- **日期**：2026-11-08
+- **状态**：已采纳（S1-B）
+- **背景**：`SpawnManager.Despawn` 只把 GameObject 回池，不保证调用 `Projectile.OnDespawned`；直接回池会让 `StaticReferenceManager.AllProjectiles` 保留已回池子弹（实测 9 个累积不消失）。
+- **决定**：软重置遍历 `AllProjectiles` 时，先 `p.OnDespawned()` 显式清理并从静态列表移除，再 `SpawnManager.Despawn`；失败再 `Destroy`。
+- **理由**：保证观测计数归零，避免训练 episode 之间的幽灵子弹。
+- **后果**：清弹逻辑依赖 `Projectile.OnDespawned` 的幂等性；已实测 20 次 after=0。
+- **替代**：直接 Destroy（可用但破坏池化）；只 `Despawn`（已否决）。

@@ -72,6 +72,22 @@
   - 运行时 `ClearPrimaryPlayer + LoadCharacterSelect` 换 Pilot → 玩家对象/枪挂点损坏、无法射击。已禁用运行时换角色（ADR-014）。
   - `PreventPausing=true` → `AcceptingNonMotionInput=false`，朝向/射击锁死。已移除全部赋值，改 `ForceUnpause` watchdog（ADR-015）。
 - **遗留问题**：
-  - 跨重启 `basePosition`/clear spot 会变；Task 1 还需固定 run seed 或固定 anchor。
   - `Knav3` 枪本身状态正常（ammo/infinite/挂点均正常）；锁定已修复，射击是否恢复待用户最终确认。后续用 Pilot 起始枪做基线。
-- **下一步**：补 Task 1 跨重启确定性，再做房间软重置。
+- **下一步**：房间软重置。
+
+---
+
+## 2026-11-08 S1-B：房间软重置
+
+- **做了什么**：
+  - 新增 `ArenaController.SoftReset`：清当前房间全部敌人、清全部子弹、回满血、走 `Setup` 复位玩家并重新生成 3 敌人。
+  - `P` 单次软重置；`T` 20 次软重置测试（测试模式无敌）。
+- **为什么**：训练 episode 重置不能用 `QuickRestart`，必须房间内软重置。
+- **结果 / 证据**：
+  - `soft reset test DONE cycles=20/20`；`soft_reset_ok=20`。
+  - 清敌 `3->0`（19 次；首轮 0->0）；`roomAll=3`、`bullets=0`。
+  - 玩家世界坐标 20 次稳定 `(63.25,39.13)`；`clear projectiles after=0` 20 次。
+  - 退出游戏后 Steam 重启成功，存档可读。
+- **关键 API 发现**：`SpawnManager.Despawn` 只回池，不保证调用 `Projectile.OnDespawned`；必须先 `p.OnDespawned()`，否则 `AllProjectiles` 会累积已回池子弹（实测 9 个不消失）。
+- **遗留问题**：无（Task 2 验收通过）。
+- **下一步**：Task 3 TCP + JSON 最小闭环。

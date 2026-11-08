@@ -378,6 +378,93 @@ namespace EtgGym.Arena
             }
         }
 
+        /// <summary>
+        /// Soft reset: clear all room enemies + all projectiles, heal player, then run Setup.
+        /// Never uses QuickRestart.
+        /// </summary>
+        public static bool SoftReset(PlayerController player)
+        {
+            if (player == null || !IsPilot(player))
+            {
+                Log("[S1-B] soft reset refused: player null or not Pilot");
+                return false;
+            }
+            if (!IsInDungeon())
+            {
+                Log("[S1-B] soft reset refused: not in dungeon");
+                return false;
+            }
+
+            RoomHandler room = player.CurrentRoom;
+            ClearAllEnemiesInRoom(room);
+            ClearProjectiles();
+
+            if (player.healthHaver != null)
+            {
+                player.healthHaver.PreventAllDamage = TestMode;
+                player.healthHaver.ForceSetCurrentHealth(player.healthHaver.GetMaxHealth());
+            }
+
+            bool ok = Setup(player);
+            Log("[S1-B] soft reset done ok=" + ok);
+            return ok;
+        }
+
+        private static void ClearAllEnemiesInRoom(RoomHandler room)
+        {
+            if (room == null)
+            {
+                Log("[S1-B] clear enemies: room null");
+                return;
+            }
+
+            List<AIActor> enemies = room.GetActiveEnemies(RoomHandler.ActiveEnemyType.All);
+            if (enemies == null)
+            {
+                Log("[S1-B] clear enemies: activeEnemies null");
+                return;
+            }
+
+            List<AIActor> copy = new List<AIActor>(enemies);
+            int before = copy.Count;
+            for (int i = 0; i < copy.Count; i++)
+            {
+                AIActor actor = copy[i];
+                if (actor == null) continue;
+                room.DeregisterEnemy(actor, true);
+                actor.EraseFromExistence(true);
+            }
+            Log("[S1-B] clear enemies before=" + before + " roomAll=" + room.GetActiveEnemiesCount(RoomHandler.ActiveEnemyType.All));
+        }
+
+        private static void ClearProjectiles()
+        {
+            List<Projectile> copy = new List<Projectile>(StaticReferenceManager.AllProjectiles);
+            int before = copy.Count;
+            int despawned = 0;
+            int destroyed = 0;
+            for (int i = 0; i < copy.Count; i++)
+            {
+                Projectile p = copy[i];
+                if (p == null) continue;
+                // SpawnManager.Despawn only returns the object to its pool; it does not
+                // necessarily invoke Projectile.OnDespawned, so explicitly remove it from
+                // StaticReferenceManager.AllProjectiles first.
+                p.OnDespawned();
+                if (SpawnManager.Despawn(p.gameObject))
+                {
+                    despawned++;
+                }
+                else
+                {
+                    UnityEngine.Object.Destroy(p.gameObject);
+                    destroyed++;
+                }
+            }
+            Log("[S1-B] clear projectiles before=" + before + " despawned=" + despawned + " destroyed=" + destroyed
+                + " after=" + StaticReferenceManager.AllProjectiles.Count);
+        }
+
         public static int ClearSpawned(PlayerController player)
         {
             int before = CountAlive();
@@ -434,8 +521,9 @@ namespace EtgGym.Arena
             int roomClear = room != null ? room.GetActiveEnemiesCount(RoomHandler.ActiveEnemyType.RoomClear) : -1;
 
             Log(string.Format(
-                "[S1-A] counts tag={0} trackedAlive={1}/{2} roomAll={3} roomClear={4} floorAlive={5}/{6}",
-                tag, CountAlive(), Spawned.Count, roomAll, roomClear, floorAlive, floorTotal));
+                "[S1-A] counts tag={0} trackedAlive={1}/{2} roomAll={3} roomClear={4} floorAlive={5}/{6} bullets={7}",
+                tag, CountAlive(), Spawned.Count, roomAll, roomClear, floorAlive, floorTotal,
+                StaticReferenceManager.AllProjectiles.Count));
         }
 
         public static void LogRoomInfo(string tag)
