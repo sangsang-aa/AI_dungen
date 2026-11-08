@@ -3,6 +3,19 @@
 > 所有结论均来自本机 `EtG_Data\Managed\Assembly-CSharp.dll` 的 ILSpy 反编译，并在游戏内实测验证。
 > 不要用 publicized 版 DLL 编译；运行时加载的是原版 DLL，私有成员必须用反射/Harmony。
 
+## 0. S0 关键结论（直接影响 S1）
+
+| 发现 | 对 S1 的影响 |
+| --- | --- |
+| `usingForcedInput` / `forcedInput` / `ForceStartDodgeRoll` / `forceFire*` 可用 | 动作层直接用这套；**不做 ViGEmBus 虚拟手柄** |
+| `StaticReferenceManager.AllProjectiles` 已由游戏维护 | 子弹观测**首选它**；Harmony 只留作交叉校验/兜底 |
+| `forceAimPoint` 实际是 `Vector2?` | 协议、C#、Python 端统一用 `Vector2`；不要写 `Vector3` |
+| 失焦时 `Time.timeScale = 0` | S1 必须加 `PreventPausing` + `Application.runInBackground` + watchdog |
+| Steam 默认 `F12` 是截图热键 | 训练/自动化不要依赖 F 键；改用配置文件或模式开关 |
+| `QuickRestart` 可能写坏存档 | 训练禁用；S1 改用“房间软重置” |
+
+> 一句话：内部 forced-input 路线成立，不需要虚拟手柄；剩余不确定性是通信层 + 固定房间软重置。
+
 ## 1. 环境与版本
 
 | 项目 | 实测值 |
@@ -244,6 +257,7 @@ public static class StaticReferenceManager
 实测结论：
 
 - 游戏**自带** `StaticReferenceManager.AllProjectiles`，生命周期由 `Projectile.Start/OnDespawned/OnDestroy` 维护，可直接用于观测，不需要自己维护列表。
+- **正式 RL 观测首选 `StaticReferenceManager.AllProjectiles`**；Harmony 只保留作交叉校验/兜底，不作为主数据源。
 - 为了满足 E4 的 Harmony 验证，插件同时挂了 `Projectile.Start`、`OnDespawned`、`OnDestroy` 三个 postfix，维护 `HashSet<Projectile>`。
 - 实测计数一致：`static=1, harmony=1, find=1`；累计 `added=94, removed=93`。
 - `FindObjectsOfType<Projectile>()` 也能用，但每帧调用开销大，只适合调试/兜底。
@@ -279,10 +293,51 @@ public class HealthHaver : BraveBehaviour
 
 ## 10. 已知坑
 
-1. **Steam F12 截图热键**会截走 `F12`，游戏收不到；测试瞄准时改用其他键，或直接 `PostMessage` 到游戏窗口。
-2. **失焦自动暂停**：游戏失去焦点时 `Time.timeScale` 变 0，所有注入失效。测试时保持游戏前台；或进入对局后设 `GameManager.Instance.PreventPausing = true`。
+1. **Steam F12 截图热键**会截走 `F12`，游戏收不到；测试瞄准时改用其他键，或直接 `PostMessage` 到游戏窗口。训练/自动化**不要依赖 F 键**，改用配置文件或模式开关。
+2. **失焦自动暂停**：游戏失去焦点时 `Time.timeScale` 变 0，所有注入失效。测试时保持游戏前台；或进入对局后设 `GameManager.Instance.PreventPausing = true`。详见第 11 节。
 3. **BepInEx 控制台**窗口会抢焦点，测试时建议隐藏/关闭 Console 或只写文件日志。
-4. **主菜单调用 `QuickRestart()`** 会 NRE + 卡加载；只能在有 `PrimaryPlayer` 时调用。插件已加保护。
+4. **主菜单调用 `QuickRestart()`** 会 NRE + 卡加载；只能在有 `PrimaryPlayer` 时调用。插件已加保护。**训练中禁用 `QuickRestart`**（可能写坏存档），S1 改用“房间软重置”。
 5. **`forceAimPoint` 是 `Vector2?`**，不要按 `Vector3` 赋值；`unadjustedAimPoint` 才是 `Vector3`。
 6. **publicized DLL 不能用于编译**：运行时是原版私有成员，直接访问会 `FieldAccessException`。编译用原版，私有成员用反射/Harmony。
 7. 游戏实际版本字符串是 **2.1.9**，不是 2.1.7；Steam buildid 3829397 与之后无更新这一点一致。
+
+## 11. 失焦暂停与无人值守（S1 必做）
+
+### 现象
+
+- 游戏失去焦点时（Alt-Tab、终端抢焦点、BepInEx 控制台打开）会调用 `Pause()`，`Time.timeScale` 变 0。
+- `PlayerController.Update` 在 `GameManager.Instance.IsPaused` 时提前返回，移动/翻滚/射击注入全部无效。
+- 这不是插件 bug，是游戏行为；无人值守训练必须处理。
+
+### 建议实现
+
+1. 进入对局后设置：
+
+   ```csharp
+   GameManager.Instance.PreventPausing = true;   // 阻止失焦自动暂停
+   Application.runInBackground = true;           // 后台继续跑（S1 需实测确认）
+   ```
+
+   `PreventPausing = true` 已确认可阻止失焦自动暂停；`Application.runInBackground` 在 S0 未单独验证，S1 要实测。
+
+2. Watchdog（建议 0.5–1 秒一次，或在 `Update` 里每 N 帧）：
+
+   ```csharp
+   if (trainingMode && !gm.IsLoadingLevel && Time.timeScale <= 0.001f)
+   {
+       gm.ForceUnpause();
+       Time.timeScale = 1f;
+       // 记录次数、时间、当前房间/玩家状态
+   }
+   ```
+
+   - 只在训练模式启用；不要和玩家主动暂停菜单打架。
+   - 每次恢复必须写日志/上报，不能静默。
+   - 恢复后确认 `BraveTime.DeltaTime` 正常，再继续发送动作。
+
+3. 验收：**连续 10 分钟无人值守，`Time.timeScale` 不得为 0**；若发生暂停，watchdog 必须在 1 秒内恢复并留下记录。
+
+### 注意
+
+- `Time.timeScale` 是全局的；游戏自身的 `BraveTime`/暂停系统也会改它。
+- 不要用 `QuickRestart` 做重置；它可能写坏 `ActiveA.game`/`SlotA.save`。S1 用“房间软重置”：清敌人、清子弹、复位玩家坐标/血量/状态、重置房间敌人，不重新加载整局。

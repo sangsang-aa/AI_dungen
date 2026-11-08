@@ -166,23 +166,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_deploy.ps1
 ## 已知问题与处理
 
 1. **主菜单调用 QuickRestart 会导致 NRE + 卡加载**  
-   本机复现；已将 F1 加 `PrimaryPlayer != null` 保护。若再次卡住，恢复存档备份后重启。
+   本机复现；已将 F1 加 `PrimaryPlayer != null` 保护。若再次卡住，恢复存档备份后重启。**训练中禁用 QuickRestart**，S1 改用房间软重置。
 2. **存档已被恢复**  
    恢复 QuickRestart 卡死期间写坏的存档后，已用 `backup/saves_20261108_101346.zip` 还原；当前存档为 S0 开始前状态。
 3. **失焦自动暂停**  
-   游戏失去焦点时 `Time.timeScale=0`，所有输入注入无效。测试/训练时保持游戏前台，或设 `GameManager.Instance.PreventPausing = true`。
+   游戏失去焦点时 `Time.timeScale=0`，所有输入注入无效。S0 测试时保持游戏前台；S1 必须加 `PreventPausing` + `Application.runInBackground` + 暂停看门狗。
 4. **BepInEx 控制台抢焦点**  
    测试时隐藏 Console，只看 `BepInEx\LogOutput.log`。
 5. **Steam F12 截图热键**  
-   游戏内瞄准测试不要用物理 F12；用其他键或 `PostMessage` 直接发窗口消息。
+   游戏内瞄准测试不要用物理 F12；用其他键或 `PostMessage` 直接发窗口消息。训练/自动化不要依赖 F 键。
 6. **版本字符串差异**  
    本机实际为 2.1.9（build 3829397），不是 2.1.7；API 以本机反编译和实测为准。
 
 ## 下一阶段（不在 S0 范围）
 
 - 固定房间/固定出生点与 3 个 Bullet Kin 的固定布局。
+- 房间软重置（禁用 QuickRestart）。
 - TCP + JSON 通信层（长度前缀/换行分隔）。
 - 观测：grid 7x64x64 + scalars 20 + rays 32。
 - 动作：`MultiDiscrete([9,16,2,2,2,2])`，动作重复 4 帧。
 - Python 3.12 + Gymnasium + SB3 + PyTorch cu128 环境（工作目录已有 `.venv`：Python 3.12.16、torch 2.11.0+cu128、RTX 5060 Ti 可用；S0 未使用）。
 - 2x 时间加速下的稳定性自动断言（碰撞/动画/翻滚距离）。
+- S1 验收标准见 `docs/s1-plan.md`；**新增硬验收：连续 10 分钟无人值守，`Time.timeScale` 不得为 0，暂停后 1 秒内恢复并记录**。
