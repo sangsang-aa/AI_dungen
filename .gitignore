@@ -1,0 +1,33 @@
+# Local-only game references (never distribute game DLLs)
+lib/
+decompiled/
+backup/
+
+# Python environment (uv-managed, local only)
+.venv/
+__pycache__/
+*.pyc
+
+# Local portable tools
+.tools/
+
+# Python environment / training artifacts
+.venv/
+__pycache__/
+*.pyc
+tb/
+runs/
+*.zip
+*.npz
+
+# Build outputs
+game/**/bin/
+game/**/obj/
+*.user
+.vs/
+.idea/
+
+# Local logs / captures
+logs/
+captures/
+*.log
