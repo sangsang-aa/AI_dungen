@@ -108,6 +108,14 @@ namespace EtgGym
             if (Input.GetKeyDown(KeyCode.F7)) DumpBulletKinEntries();
             if (Input.GetKeyDown(KeyCode.F4)) StartArenaSetup(FindAnyPlayer());
 
+            GameManager seedGm = GameManager.Instance;
+            if (seedGm != null && seedGm.IsFoyer && ArenaController.IsPilot(FindAnyPlayer())
+                && seedGm.CurrentRunSeed != ArenaController.FixedRunSeed)
+            {
+                seedGm.CurrentRunSeed = ArenaController.FixedRunSeed;
+                Logger.LogInfo("[S1-A] fixed run seed enforced in Foyer: " + ArenaController.FixedRunSeed);
+            }
+
             PlayerController player = FindAnyPlayer();
             if (player == null)
             {

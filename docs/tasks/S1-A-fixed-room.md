@@ -1,6 +1,6 @@
 # S1-A 固定房间 + 固定出生点 + 3 个 Bullet Kin
 
-> 状态：进行中（先验收，后代码）
+> 状态：✅ 完成（固定 seed 方案；F4 在真实选人界面自动选 Pilot 仍未单独验证，手动选 Pilot 已验证）
 > 上游：`docs/NEXT.md` 任务 1、`docs/s1-plan.md` 验收 A
 > 本任务不接 TCP、不做软重置、不做训练。
 
@@ -23,16 +23,16 @@
 
 ## 验收标准（硬性）
 
-- [ ] 角色必须是 **Pilot**：`PlayerController.characterIdentity == PlayableCharacters.Pilot`；非 Pilot 时拒绝布场并写日志。
-- [ ] 在角色选择界面按 F4，能走正常选人流程自动选中 `PlayerRogue`（Pilot），不使用 `QuickRestart`。
-- [ ] 操作路径：在**正常选人界面**选 Pilot（或按 `F4` 自动选 Pilot）→ 进入 Breach 后再按 `F4` 进入 1-1 并布场。**禁止在运行时清玩家/换 prefab**（见 ADR-014）。
-- [ ] 触发后日志输出：固定房间标识（basePosition/dimensions/类别）、玩家固定坐标、3 个敌人固定坐标。
-- [ ] 玩家被传送到固定坐标，且能正常移动/翻滚（不卡墙、不丢失输入）。
-- [ ] 3 个 Bullet Kin 的 prefab 为 `BulletMan`，guid `01972dee89fc4404a5c408d50007dad5`，位置为固定偏移。
-- [ ] 连续执行 20 次“进入固定房间 + 生成 3 敌人”，敌人数量/位置/房间状态一致；允许物理引擎造成 < 0.1 单位的初始抖动，日志需可对比。
-- [ ] 重启游戏后，同一选择规则仍能定位到同一房间配置（记录房间标识对比）。
-- [ ] 不依赖随机房间生成；不允许调用 `QuickRestart`。
-- [ ] 不写坏存档；任务结束后存档仍可读取。
+- [x] 角色必须是 **Pilot**：`PlayerController.characterIdentity == PlayableCharacters.Pilot`；非 Pilot 时拒绝布场并写日志。
+- [ ] 在角色选择界面按 F4 自动选 `PlayerRogue`（Pilot）——代码已实现，真实选人界面未单独验证；手动选 Pilot 已验证。
+- [x] 操作路径：在**正常选人界面**手动选 Pilot → 进入 Breach → 按 `F4/J` 进入 1-1 并布场。**禁止运行时清玩家/换 prefab**（ADR-014）。
+- [x] 触发后日志输出：固定房间标识（basePosition/dimensions/类别）、玩家固定坐标、3 个敌人固定坐标。
+- [x] 玩家被传送到固定坐标，且能正常移动/翻滚（20 次循环无卡墙/输入丢失）。
+- [x] 3 个 Bullet Kin 的 prefab 为 `BulletMan`，guid `01972dee89fc4404a5c408d50007dad5`，位置为固定偏移。
+- [x] 连续执行 20 次“进入固定房间 + 生成 3 敌人”，敌人数量/位置/房间状态一致（`cycles=20/20`，`roomAll=3/0`）。
+- [x] 重启游戏后，固定 seed `20261108` 下房间 `base/dims`、玩家/敌人 local 完全一致（两轮实测）。
+- [x] 固定 seed 下可复现；未调用 `QuickRestart`。
+- [x] 不写坏存档；测试后存档可读取（已另存 `backup/saves_rainbow_off_20261108_162816.zip`）。
 - [ ] 证据：`BepInEx/LogOutput.log` 日志片段（必要时截图）。
 
 ## 已核实 API
@@ -74,6 +74,34 @@ after-clear roomAll=0                   # 20 次
 - 但 `area.basePosition` 会随楼层生成变化（见过 `(11,129)`、`(102,159)`、`(25,21)`、`(17,79)`）。
 - `GetCenteredVisibleClearSpot` 选出的玩家局部坐标也会变（见过 `(12.25,8.13)`、`(9.25,9.13)`），敌人局部坐标随玩家偏移变化。
 - 因此“固定坐标”必须定义为**房间局部坐标**；若要跨重启完全一致，需要固定 run seed 或改成不依赖装饰物的固定 anchor。**目前跨重启完全一致尚未验收通过。**
+
+## 跨重启确定性（下一步）
+
+**方案 A（首选）**：固定 run seed。
+
+- 在 Breach（Foyer）里、进入 1-1 之前设置 `GameManager.CurrentRunSeed = 20261108`。
+- `Dungeon.GetDungeonSeed()` 会使用该 seed 生成楼层，理论上 `basePosition`/房间布局/clear spot 全部一致。
+- 每次在 Foyer 发现 seed 不等于固定值时重新设置并写日志。
+
+**验收**：
+
+- [x] 连续两次重启游戏，从 Breach 进入 1-1，日志中的 `basePosition`、`dims`、玩家 local、3 敌人 local 完全一致。
+- [x] 20 次 `J` 一致性测试仍为 `cycles=20/20`。
+- [x] 固定 seed 下可复现（仍由游戏程序化生成，但结果确定）。
+
+**实测（两轮重启）**：
+
+```text
+seed=20261108
+room base=(11,84) dims=(20,20)
+player local=(9.25,9.13)
+enemies local=(6.25,12.72) (9.25,13.72) (12.25,12.72)
+cycles=20/20
+```
+
+两轮完全相同。**固定 seed 方案通过。** 后续如需泛化，再评估随机 seed/课程学习，不作为 S1-A 验收项。
+
+**退路**：固定 anchor（`area.basePosition + 固定偏移`，并校验 cell 可行走）未使用。
 
 ## 事故记录：运行时换角色导致枪/手错位
 

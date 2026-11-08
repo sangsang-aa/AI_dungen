@@ -11,34 +11,33 @@
 
 ## 任务 1：固定房间 + 固定出生点 + 3 个 Bullet Kin
 
-**状态**：🟡 部分通过（2026-11-08）  
-**已完成**：入口房间识别、玩家传送、3 敌人生成、20/20 次单局一致；`J` 一键测试。  
-**剩余**：跨重启完全一致（入口房间 `basePosition` / clear spot 会变）。
+**状态**：✅ 完成（2026-11-08，固定 seed `20261108`）  
+**证据**：两轮重启 `base=(11,84) dims=(20,20)`、玩家 local `(9.25,9.13)`、3 敌人 local 完全一致；`cycles=20/20`，`roomAll=3/0`。  
+**未验证**：真实选人界面按 F4 自动选 Pilot（手动选 Pilot 已验证）。
 
 **目标**
 一键进入 1-1 的指定房间，把玩家传送到固定坐标，在固定偏移生成 3 个 Bullet Kin。
 
 **改哪些文件**
 - `game/EtgGym/Plugin.cs`、`game/EtgGym/Arena/ArenaController.cs`
-- 后续：固定 run seed 或固定 room anchor
 
 **验收标准**
 - [x] 触发后，日志出现固定房间标识、玩家固定坐标、3 个敌人固定坐标（20/20）。
 - [x] 连续重置 20 次，敌人数量/位置/房间状态一致（`roomAll=3/0`）。
-- [ ] 重启游戏后仍能回到同一房间配置（当前 `basePosition`/clear spot 会变，需固定 seed 或固定 anchor）。
-- [ ] 不依赖随机房间生成（入口房间是固定类别，但生成位置仍随机）。
-
-**下一步（补完 Task 1）**
-1. 在 `StartFirstFloorFromFoyer` 前设置固定 `GameManager.CurrentRunSeed`，验证跨重启 `basePosition`/local 坐标一致。
-2. 或改用固定 anchor：从 `area.basePosition + 固定偏移` 选 cell，并验证可行走，不依赖 `GetCenteredVisibleClearSpot`。
+- [x] 重启游戏后仍能回到同一房间配置（固定 seed `20261108`）。
+- [x] 固定 seed 下可复现；未调用 `QuickRestart`。
 
 **风险**
-- 固定 seed 可能影响游戏其他随机内容（掉落/敌人），需确认只用于训练。
-- 传送后可能触发房间进入逻辑，需要确认 `OnEntered` 不会重复刷怪。
+- 固定 seed 会固定掉落/敌人等内容；泛化训练后续再评估随机 seed。
+- 传送后可能触发房间进入逻辑，已实测 20 次无重复刷怪。
 
 ---
 
 ## 任务 2：房间软重置
+
+**状态**：⬜ 当前任务（Task 1 已完成）  
+**已有基础**：`ArenaController.ClearSpawned` 已用 `DeregisterEnemy + EraseFromExistence`；玩家传送/枪修复已可用。  
+**待做**：清子弹、复位玩家血量/状态、重新生成 3 敌人、20 次无泄漏/存档检查。
 
 **目标**
 不调用 `QuickRestart`，把当前房间恢复到初始状态：清敌人、清子弹、复位玩家坐标/血量/状态、重新生成 3 个 Bullet Kin。

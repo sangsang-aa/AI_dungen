@@ -15,6 +15,7 @@ namespace EtgGym.Arena
     {
         public const string BulletKinPrefab = "BulletMan";
         public const string BulletKinGuid = "01972dee89fc4404a5c408d50007dad5";
+        public const int FixedRunSeed = 20261108;
 
         // Fixed offsets from the player's teleport spot. Room-local is logged as well.
         private static readonly Vector2[] EnemyOffsets =
@@ -137,6 +138,8 @@ namespace EtgGym.Arena
             }
 
             gm.PreventPausing = false;
+            gm.CurrentRunSeed = FixedRunSeed;
+            Log("[S1-A] fixed run seed applied before load: " + FixedRunSeed);
             gm.DelayedLoadNextLevel(0.75f);
             foyer.OnDepartedFoyer();
             Log("[S1-A] Foyer door path started: DelayedLoadNextLevel(0.75) + OnDepartedFoyer");

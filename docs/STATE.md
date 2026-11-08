@@ -4,8 +4,8 @@
 > 每次会话结束更新；新会话先读它，不要靠聊天记录回忆。
 
 - **更新时间**：2026-11-08
-- **当前阶段**：S0 完成，S1 待开始
-- **一句话**：游戏侧可控性已打通（内部 forced-input），下一步做固定房间 + 软重置 + TCP 通信。
+- **当前阶段**：S1-A 完成，S1-B 房间软重置待开始
+- **一句话**：固定 seed 的入口房间 + 3 敌人 + 20 次一致性已通过；下一步做房间软重置、TCP 通信。
 
 ---
 
@@ -20,7 +20,7 @@
 | E4 子弹枚举 | ✅ 通过 | `static=1, harmony=1, find=1`，累计 `added=94/removed=93` |
 | E5 2x 加速 | ✅ 通过 | `timescale=2.0` 跑 60 秒，无穿模/卡动画 |
 | Python 训练环境 | ✅ 完成 | Python 3.12.16，torch 2.11.0+cu128，SB3 2.9.2 |
-| S1-A 固定房间 + 出生点 | 🟡 部分通过 | 20/20 次单局一致；跨重启 absolute base/clear spot 仍会变，需固定 seed 或固定 anchor |
+| S1-A 固定房间 + 出生点 | ✅ 完成 | 固定 seed `20261108`；20/20；两轮重启 base/local 完全一致 |
 | S1-B 房间软重置 | ⬜ 未开始 | 禁用 `QuickRestart` |
 | S1-C TCP + JSON 通信 | ⬜ 未开始 | 长度前缀/换行分隔 |
 | S1-D Python `EtgGymEnv` | ⬜ 未开始 | Gymnasium 封装 |
@@ -38,11 +38,12 @@
 - API 笔记：`docs/game-api-notes.md`
 - 结论：内部 forced-input 路线成立，**不需要 ViGEmBus**。
 
-### S1-A 固定房间（部分通过）
+### S1-A 固定房间（完成）
 
-- 20/20 次单局一致：`base=(17,79) dims=(20,20)`，玩家 local `(9.25,9.13)`，3 敌人 local 固定，`roomAll=3/0`。
-- 跨重启：房间类别/名称/尺寸稳定；`basePosition` 和 clear spot 的局部坐标会变，需固定 seed 或固定 anchor。
+- 固定 seed `20261108`：两轮重启 `base=(11,84) dims=(20,20)`、玩家 local `(9.25,9.13)`、3 敌人 local 完全一致。
+- 20/20 次一致性测试：`cycles=20/20`，`roomAll=3/0`。
 - 事故与修复：运行时换角色导致枪/手错位（ADR-014）；`PreventPausing=true` 导致朝向/射击锁死（ADR-015）。
+- 未验证项：真实选人界面按 F4 自动选 Pilot（手动选 Pilot 已验证）。
 
 ### 插件与控制
 

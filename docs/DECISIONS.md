@@ -203,3 +203,15 @@
 - **理由**：`AcceptingNonMotionInput` 明确依赖 `!PreventPausing`；这是游戏内部语义，不是“暂停开关”。
 - **后果**：无人值守训练需要 watchdog；不能靠 PreventPausing 静默防暂停。
 - **替代**：`PreventPausing=true`（已否决，已移除）。
+
+---
+
+## ADR-016 S1-A 用固定 run seed 20261108
+
+- **日期**：2026-11-08
+- **状态**：已采纳（S1-A）
+- **背景**：入口房间类别/尺寸稳定，但程序化生成导致 `basePosition` 和 clear spot 跨重启变化；不满足“固定房间/固定坐标”。
+- **决定**：在 Breach 进入 1-1 前设置 `GameManager.CurrentRunSeed = 20261108`；Foyer 里检测到 Pilot 时也强制该 seed。
+- **理由**：`Dungeon.GetDungeonSeed()` 使用 `CurrentRunSeed`，固定后两轮重启的 `base/dims`、玩家/敌人 local 完全一致。
+- **后果**：掉落/敌人等内容也被固定；训练泛化后续再评估随机 seed 或课程学习。
+- **替代**：固定 anchor（未使用）；随机 seed（不满足 S1-A）。

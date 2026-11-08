@@ -67,6 +67,7 @@
 - **结果 / 证据**：
   - `consistency test DONE cycles=20/20`；`roomAll` 生成后 3、清除后 0；玩家/敌人局部坐标 20 次一致。
   - 彩虹模式：`rainbowRunToggled True -> False IsRainbowRun=False; Save=True`。
+  - 跨重启：固定 seed `20261108`，两轮 `base=(11,84) dims=(20,20)`、玩家/敌人 local 完全一致；Task 1 完成。
 - **事故 / 修复**：
   - 运行时 `ClearPrimaryPlayer + LoadCharacterSelect` 换 Pilot → 玩家对象/枪挂点损坏、无法射击。已禁用运行时换角色（ADR-014）。
   - `PreventPausing=true` → `AcceptingNonMotionInput=false`，朝向/射击锁死。已移除全部赋值，改 `ForceUnpause` watchdog（ADR-015）。
