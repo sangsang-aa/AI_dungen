@@ -10,7 +10,7 @@
 | `usingForcedInput` / `forcedInput` / `ForceStartDodgeRoll` / `forceFire*` 可用 | 动作层直接用这套；**不做 ViGEmBus 虚拟手柄** |
 | `StaticReferenceManager.AllProjectiles` 已由游戏维护 | 子弹观测**首选它**；Harmony 只留作交叉校验/兜底 |
 | `forceAimPoint` 实际是 `Vector2?` | 协议、C#、Python 端统一用 `Vector2`；不要写 `Vector3` |
-| 失焦时 `Time.timeScale = 0` | S1 必须加 `PreventPausing` + `Application.runInBackground` + watchdog |
+| 失焦时 `Time.timeScale = 0` | S1 用 watchdog `ForceUnpause`；**绝不能设 `PreventPausing=true`**（会禁用瞄准/射击） |
 | Steam 默认 `F12` 是截图热键 | 训练/自动化不要依赖 F 键；改用配置文件或模式开关 |
 | `QuickRestart` 可能写坏存档 | 训练禁用；S1 改用“房间软重置” |
 
@@ -52,7 +52,7 @@ public class GameManager : BraveBehaviour
     public bool IsPaused { get; }
     public bool IsLoadingLevel { get; private set; }
     public bool IsFoyer { get; }
-    public bool PreventPausing { get; set; }           // true = 失焦不自动暂停
+    public bool PreventPausing { get; set; }           // 陷阱：true 会让 AcceptingNonMotionInput=false，禁用瞄准/射击
 
     public void Pause();
     public void ForceUnpause();
@@ -65,8 +65,8 @@ public class GameManager : BraveBehaviour
 注意：
 
 - `QuickRestart()` 只能在已有 `PrimaryPlayer` 的对局/大厅里调用。**在主菜单调用会抛 NullReference 并卡在“载入中”**（本机已复现，已恢复存档）。
-- `PreventPausing = true` 可以阻止失焦自动暂停；测试脚本/agent 建议在进入对局后设置。
-- `Time.timeScale == 0` 时游戏暂停，`PlayerController.Update` 会提前返回，所有输入注入都无效。
+- **不要在对局中设 `PreventPausing = true`**。它会让 `PlayerController.AcceptingNonMotionInput` 变成 false，而瞄准和射击都在这个分支里；表现是“朝向锁死、不能射击”。本机已实测复现。
+- `Time.timeScale == 0` 时游戏暂停，`PlayerController.Update` 会提前返回，所有输入注入都无效。用 `ForceUnpause()` + watchdog 处理，不要用 `PreventPausing`。
 
 ## 4. PlayerController
 
@@ -294,7 +294,7 @@ public class HealthHaver : BraveBehaviour
 ## 10. 已知坑
 
 1. **Steam F12 截图热键**会截走 `F12`，游戏收不到；测试瞄准时改用其他键，或直接 `PostMessage` 到游戏窗口。训练/自动化**不要依赖 F 键**，改用配置文件或模式开关。
-2. **失焦自动暂停**：游戏失去焦点时 `Time.timeScale` 变 0，所有注入失效。测试时保持游戏前台；或进入对局后设 `GameManager.Instance.PreventPausing = true`。详见第 11 节。
+2. **失焦自动暂停**：游戏失去焦点时 `Time.timeScale` 变 0，所有注入失效。用 watchdog `ForceUnpause()` 处理；**不要设 `PreventPausing=true`**（会让 `AcceptingNonMotionInput=false`，瞄准/射击被禁用）。详见第 11 节。
 3. **BepInEx 控制台**窗口会抢焦点，测试时建议隐藏/关闭 Console 或只写文件日志。
 4. **主菜单调用 `QuickRestart()`** 会 NRE + 卡加载；只能在有 `PrimaryPlayer` 时调用。插件已加保护。**训练中禁用 `QuickRestart`**（可能写坏存档），S1 改用“房间软重置”。
 5. **`forceAimPoint` 是 `Vector2?`**，不要按 `Vector3` 赋值；`unadjustedAimPoint` 才是 `Vector3`。
@@ -309,17 +309,20 @@ public class HealthHaver : BraveBehaviour
 - `PlayerController.Update` 在 `GameManager.Instance.IsPaused` 时提前返回，移动/翻滚/射击注入全部无效。
 - 这不是插件 bug，是游戏行为；无人值守训练必须处理。
 
-### 建议实现
+### 禁止使用 `PreventPausing = true`
 
-1. 进入对局后设置：
+`PreventPausing` 的 setter 实际设置 `m_preventUnpausing`；而 `PlayerController.AcceptingNonMotionInput` 的条件是：
 
-   ```csharp
-   GameManager.Instance.PreventPausing = true;   // 阻止失焦自动暂停
-   Application.runInBackground = true;           // 后台继续跑（S1 需实测确认）
-   ```
+```csharp
+(CurrentInputState == AllInput || CurrentInputState == NoMovement)
+&& !GameManager.Instance.PreventPausing
+```
 
-   `PreventPausing = true` 已确认可阻止失焦自动暂停；`Application.runInBackground` 在 S0 未单独验证，S1 要实测。
+所以设 `true` 会直接禁用瞄准/射击，表现为“朝向锁死、不能开火”。S0/S1 已实测复现。**不要用它防失焦暂停。**
 
+### 正确实现
+
+1. 保持 `PreventPausing = false`。
 2. Watchdog（建议 0.5–1 秒一次，或在 `Update` 里每 N 帧）：
 
    ```csharp

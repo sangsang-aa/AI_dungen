@@ -141,7 +141,7 @@ Bullet Kin 的实测标识：
 
 | 键 | 功能 |
 | --- | --- |
-| `F1` | QuickRestart（仅在有 `PrimaryPlayer` 时生效，避免主菜单误触） |
+| `F1` | 已禁用（运行时换角色会破坏枪/手；Pilot 请在正常选人界面选，见 ADR-014） |
 | `F2` | 紧急复位：清空移动/射击/瞄准注入，`Time.timeScale=1` |
 | `F3` | 清除本次 F4 生成的 3 个 Bullet Kin |
 | `F4` | 在玩家上方生成 3 个 Bullet Kin |
@@ -166,11 +166,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_deploy.ps1
 ## 已知问题与处理
 
 1. **主菜单调用 QuickRestart 会导致 NRE + 卡加载**  
-   本机复现；已将 F1 加 `PrimaryPlayer != null` 保护。若再次卡住，恢复存档备份后重启。**训练中禁用 QuickRestart**，S1 改用房间软重置。
+   本机复现。**训练中禁用 QuickRestart**；插件已移除 QuickRestart，F1 改为 `LoadCharacterSelect`（正常选人流程）。S1 重置改用房间软重置。
 2. **存档已被恢复**  
    恢复 QuickRestart 卡死期间写坏的存档后，已用 `backup/saves_20261108_101346.zip` 还原；当前存档为 S0 开始前状态。
 3. **失焦自动暂停**  
-   游戏失去焦点时 `Time.timeScale=0`，所有输入注入无效。S0 测试时保持游戏前台；S1 必须加 `PreventPausing` + `Application.runInBackground` + 暂停看门狗。
+   游戏失去焦点时 `Time.timeScale=0`，所有输入注入无效。S1 用 watchdog `ForceUnpause()` 处理；**不要设 `PreventPausing=true`**——它会让 `AcceptingNonMotionInput=false`，禁用瞄准/射击（S1-A 已复现）。
 4. **BepInEx 控制台抢焦点**  
    测试时隐藏 Console，只看 `BepInEx\LogOutput.log`。
 5. **Steam F12 截图热键**  

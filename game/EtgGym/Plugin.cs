@@ -1,8 +1,11 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using BepInEx;
+using BepInEx.Logging;
 using Dungeonator;
+using EtgGym.Arena;
 using HarmonyLib;
 using UnityEngine;
 
@@ -15,7 +18,7 @@ namespace EtgGym
         public const string Name = "EtgGym";
         public const string Version = "0.1.0";
 
-        private const string BulletKinGuid = "01972dee89fc4404a5c408d50007dad5";
+        internal static ManualLogSource LogSource;
 
         private static readonly HashSet<Projectile> TrackedProjectiles = new HashSet<Projectile>();
         private static int ProjectilesAdded;
@@ -43,14 +46,18 @@ namespace EtgGym
         private bool _aimTest;
         private float _aimTestEnd;
 
-        // E3 spawn/clear
-        private readonly List<AIActor> _spawnedEnemies = new List<AIActor>();
-        private float _clearCheckAt;
+        // S1-A arena setup
+        private bool _pendingArenaSetup;
+        private int _pendingArenaPhase;
+        private float _pendingArenaDeadline;
+        private float _arenaCheckAt;
+        private bool _consistencyRunning;
 
         private void Awake()
         {
+            LogSource = Logger;
             Logger.LogInfo(Name + " " + Version + " loaded.");
-            Logger.LogInfo("Keys: F1 quick restart | F2 reset | F3 clear spawned | F4 spawn 3 BulletKin | F5 timescale | F6 projectile counts | F7 dump DB | F8 status | F9 move | F10 roll | F11 fire | F12 aim");
+            Logger.LogInfo("Keys: F2 reset | K repair gun/hand/aim | L recover player state | O save rainbow mode OFF | F3 clear arena | F4 force Pilot (select screen) / setup arena (Foyer -> 1-1 or fixed entrance) | F5 timescale | H toggle test mode (invulnerable) | J 20x consistency test | F6 room/projectile info | F7 dump DB | F8 status | F9 move | F10 roll | F11 fire | F12 aim");
 
             try
             {
@@ -80,7 +87,10 @@ namespace EtgGym
 
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.F1)) QuickRestartTest();
+            if (Input.GetKeyDown(KeyCode.F1))
+            {
+                Logger.LogInfo("[S1-A] F1 runtime character swap disabled: use the normal character-select screen and pick Pilot");
+            }
             if (Input.GetKeyDown(KeyCode.F2)) ResetOverrides();
 
             if (Input.GetKeyDown(KeyCode.F8))
@@ -90,19 +100,40 @@ namespace EtgGym
                 if (_verbose) LogStatus("manual");
             }
 
+            if (Input.GetKeyDown(KeyCode.H)) ArenaController.ToggleTestMode();
+            if (Input.GetKeyDown(KeyCode.J)) StartConsistencyTest();
+            if (Input.GetKeyDown(KeyCode.K)) ArenaController.RepairPlayer(FindAnyPlayer());
+            if (Input.GetKeyDown(KeyCode.L)) RecoverPlayerState();
+            if (Input.GetKeyDown(KeyCode.O)) SaveRainbowOff();
             if (Input.GetKeyDown(KeyCode.F7)) DumpBulletKinEntries();
+            if (Input.GetKeyDown(KeyCode.F4)) StartArenaSetup(FindAnyPlayer());
 
-            PlayerController player = GetPlayer();
+            PlayerController player = FindAnyPlayer();
             if (player == null)
             {
                 if (_verbose) LogStatus("no-player");
                 return;
             }
 
-            if (Input.GetKeyDown(KeyCode.F3)) ClearSpawnedEnemies(player);
-            if (Input.GetKeyDown(KeyCode.F4)) SpawnBulletKin(player);
+            if (Input.GetKeyDown(KeyCode.F3))
+            {
+                ArenaController.ClearSpawned(player);
+                _arenaCheckAt = Time.unscaledTime + 1f;
+            }
             if (Input.GetKeyDown(KeyCode.F5)) ToggleTimescale();
-            if (Input.GetKeyDown(KeyCode.F6)) LogProjectileCounts(player);
+            if (Input.GetKeyDown(KeyCode.F6))
+            {
+                if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift))
+                {
+                    ArenaController.ToggleTestMode();
+                }
+                else
+                {
+                    LogProjectileCounts(player);
+                    ArenaController.LogRoomInfo("F6");
+                    ArenaController.LogCounts(player, "F6");
+                }
+            }
             if (Input.GetKeyDown(KeyCode.F9)) StartMoveTest(player);
             if (Input.GetKeyDown(KeyCode.F10)) TestDodgeRoll(player);
             if (Input.GetKeyDown(KeyCode.F11)) StartFireTest(player);
@@ -111,7 +142,8 @@ namespace EtgGym
             TickMoveTest(player);
             TickFireTest(player);
             TickAimTest(player);
-            TickClearCheck(player);
+            TickArenaSetup(player);
+            TickArenaCheck(player);
 
             if (_verbose)
             {
@@ -131,17 +163,61 @@ namespace EtgGym
             return gm.PrimaryPlayer;
         }
 
-        private void QuickRestartTest()
+        private static PlayerController FindAnyPlayer()
+        {
+            PlayerController player = GetPlayer();
+            if (player != null) return player;
+
+            PlayerController[] all = UnityEngine.Object.FindObjectsOfType<PlayerController>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] != null && all[i].gameObject != null && all[i].gameObject.activeInHierarchy)
+                {
+                    return all[i];
+                }
+            }
+            return null;
+        }
+
+        private void SaveRainbowOff()
+        {
+            try
+            {
+                GameStatsManager gsm = GameStatsManager.Instance;
+                if (gsm == null)
+                {
+                    Logger.LogInfo("[S1] rainbow save failed: GameStatsManager null");
+                    return;
+                }
+
+                bool before = gsm.rainbowRunToggled;
+                gsm.rainbowRunToggled = false;
+                bool ok = GameStatsManager.Save();
+                Logger.LogInfo("[S1] rainbowRunToggled " + before + " -> " + gsm.rainbowRunToggled
+                    + " IsRainbowRun=" + gsm.IsRainbowRun
+                    + "; GameStatsManager.Save()=" + ok);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("[S1] rainbow save failed: " + ex);
+            }
+        }
+
+        private void RecoverPlayerState()
         {
             GameManager gm = GameManager.Instance;
-            if (gm == null || gm.PrimaryPlayer == null || gm.IsLoadingLevel)
+            if (gm != null)
             {
-                Logger.LogInfo("[S0] QuickRestart ignored: no active run/player (menu or loading)");
-                return;
+                gm.IsSelectingCharacter = false;
+                GameManager.IsReturningToBreach = false;
             }
-            gm.PreventPausing = true;
-            gm.QuickRestart();
-            Logger.LogInfo("[S0] QuickRestart requested; PreventPausing=true");
+
+            PlayerController player = FindAnyPlayer();
+            if (player != null)
+            {
+                ArenaController.RepairPlayer(player);
+            }
+            Logger.LogInfo("[S1-A] recover: player=" + (player != null ? player.characterIdentity.ToString() : "null"));
         }
 
         private void ResetOverrides()
@@ -150,12 +226,15 @@ namespace EtgGym
             _fireTest = false;
             _aimTest = false;
             _fireUpPending = false;
+            _pendingArenaSetup = false;
+            _arenaCheckAt = 0f;
             Time.timeScale = 1f;
 
             PlayerController player = GetPlayer();
             if (GameManager.Instance != null) GameManager.Instance.PreventPausing = false;
             if (player != null)
             {
+                ArenaController.ClearSpawned(player);
                 player.usingForcedInput = false;
                 player.forcedInput = Vector2.zero;
                 player.forceFire = false;
@@ -168,7 +247,7 @@ namespace EtgGym
 
         private void LogStatus(string tag)
         {
-            PlayerController player = GetPlayer();
+            PlayerController player = FindAnyPlayer();
             if (player == null)
             {
                 Logger.LogInfo("[status:" + tag + "] no player");
@@ -319,86 +398,181 @@ namespace EtgGym
             }
         }
 
-        private void SpawnBulletKin(PlayerController player)
+        private void StartArenaSetup(PlayerController player)
         {
-            RoomHandler room = player.CurrentRoom;
-            if (room == null)
+            // At character select (PrimaryPlayer == null), force Pilot via the normal selection flow.
+            if (ArenaController.ForcePilotAtCharacterSelect())
             {
-                Logger.LogInfo("[E3-spawn] no current room");
                 return;
             }
 
-            AIActor prefab = EnemyDatabase.GetOrLoadByName("BulletMan");
-            if (prefab == null)
+            GameManager gm = GameManager.Instance;
+            if (gm == null)
             {
-                Logger.LogInfo("[E3-spawn] BulletMan prefab not found");
+                Logger.LogInfo("[S1-A] setup failed: no GameManager");
                 return;
             }
 
-            _spawnedEnemies.Clear();
-            Vector2 origin = player.CenterPosition;
-            Vector2[] offsets = new Vector2[]
+            if (gm.IsFoyer && (gm.IsSelectingCharacter || GameManager.IsReturningToBreach))
             {
-                new Vector2(-3f, 3f),
-                new Vector2(0f, 4f),
-                new Vector2(3f, 3f)
-            };
+                gm.IsSelectingCharacter = false;
+                GameManager.IsReturningToBreach = false;
+                Logger.LogInfo("[S1-A] cleared stale Foyer selecting/returning flags");
+                player = GetPlayer();
+            }
 
-            for (int i = 0; i < offsets.Length; i++)
+            if (player == null)
             {
-                AIActor actor = AIActor.Spawn(prefab, origin + offsets[i], room, true, AIActor.AwakenAnimationType.Spawn, true);
-                if (actor != null)
+                Logger.LogInfo("[S1-A] setup ignored: no player (menu/character select/loading)");
+                return;
+            }
+
+            if (gm.IsFoyer)
+            {
+                if (!ArenaController.IsPilot(player))
                 {
-                    _spawnedEnemies.Add(actor);
-                    Logger.LogInfo("[E3-spawn] #" + (i + 1) + " name=" + actor.name + " guid=" + actor.EnemyGuid + " pos=" + Fmt(actor.CenterPosition));
+                    Logger.LogInfo("[S1-A] refused: current character=" + player.characterIdentity + ", require Pilot. Return to character select and press F4.");
+                    return;
                 }
-                else
+                if (ArenaController.StartFirstFloorFromFoyer())
                 {
-                    Logger.LogInfo("[E3-spawn] #" + (i + 1) + " FAILED");
+                    _pendingArenaSetup = true;
+                    _pendingArenaPhase = 0;
+                    _pendingArenaDeadline = Time.unscaledTime + 25f;
+                    Logger.LogInfo("[S1-A] waiting for 1-1 load...");
+                }
+                return;
+            }
+
+            if (ArenaController.Setup(player))
+            {
+                _arenaCheckAt = Time.unscaledTime + 1f;
+            }
+        }
+
+        private void TickArenaSetup(PlayerController player)
+        {
+            if (!_pendingArenaSetup) return;
+
+            GameManager gm = GameManager.Instance;
+            if (gm == null || Time.unscaledTime > _pendingArenaDeadline)
+            {
+                Logger.LogInfo("[S1-A] pending setup timed out/cancelled");
+                _pendingArenaSetup = false;
+                return;
+            }
+
+            if (_pendingArenaPhase == 0)
+            {
+                if (gm.IsLoadingLevel)
+                {
+                    _pendingArenaPhase = 1;
+                    Logger.LogInfo("[S1-A] floor loading detected");
+                }
+                return;
+            }
+
+            if (_pendingArenaPhase == 1 && !gm.IsLoadingLevel)
+            {
+                _pendingArenaSetup = false;
+                if (!ArenaController.IsInDungeon())
+                {
+                    Logger.LogInfo("[S1-A] load finished but not in a dungeon");
+                    return;
+                }
+
+                PlayerController p = gm.PrimaryPlayer;
+                if (ArenaController.Setup(p))
+                {
+                    _arenaCheckAt = Time.unscaledTime + 1f;
                 }
             }
-
-            Logger.LogInfo("[E3-spawn] requested=3 spawned=" + _spawnedEnemies.Count + " roomAll=" + room.GetActiveEnemiesCount(RoomHandler.ActiveEnemyType.All) + " roomClear=" + room.GetActiveEnemiesCount(RoomHandler.ActiveEnemyType.RoomClear));
         }
 
-        private void ClearSpawnedEnemies(PlayerController player)
+        private void TickArenaCheck(PlayerController player)
         {
-            int before = CountAlive(_spawnedEnemies);
-            for (int i = 0; i < _spawnedEnemies.Count; i++)
+            if (_arenaCheckAt <= 0f || Time.unscaledTime < _arenaCheckAt) return;
+            _arenaCheckAt = 0f;
+            ArenaController.LogCounts(player, "1s-after-setup");
+            ArenaController.LogRoomInfo("1s-after-setup");
+        }
+
+        private void StartConsistencyTest()
+        {
+            if (_consistencyRunning)
             {
-                AIActor actor = _spawnedEnemies[i];
-                if (actor == null || actor.healthHaver == null || !actor.healthHaver.IsAlive) continue;
-                actor.healthHaver.ApplyDamage(99999f, Vector2.zero, "EtgGym", CoreDamageTypes.None, DamageCategory.Unstoppable, true, null, true);
+                Logger.LogInfo("[S1-A] consistency test already running");
+                return;
+            }
+            StartCoroutine(ConsistencyTestCR(20));
+        }
+
+        private IEnumerator ConsistencyTestCR(int cycles)
+        {
+            _consistencyRunning = true;
+            GameManager gm = GameManager.Instance;
+            if (gm == null)
+            {
+                Logger.LogInfo("[S1-A] consistency test: no GameManager");
+                _consistencyRunning = false;
+                yield break;
             }
 
-            RoomHandler room = player.CurrentRoom;
-            int roomAll = room != null ? room.GetActiveEnemiesCount(RoomHandler.ActiveEnemyType.All) : -1;
-            int roomClear = room != null ? room.GetActiveEnemiesCount(RoomHandler.ActiveEnemyType.RoomClear) : -1;
-            Logger.LogInfo("[E3-clear] aliveBefore=" + before + " roomAll=" + roomAll + " roomClear=" + roomClear);
-            _clearCheckAt = Time.unscaledTime + 1f;
-        }
+            ArenaController.SetTestMode(true);
 
-        private void TickClearCheck(PlayerController player)
-        {
-            if (_clearCheckAt <= 0f || Time.unscaledTime < _clearCheckAt) return;
-            _clearCheckAt = 0f;
-
-            int alive = CountAlive(_spawnedEnemies);
-            RoomHandler room = player.CurrentRoom;
-            int roomAll = room != null ? room.GetActiveEnemiesCount(RoomHandler.ActiveEnemyType.All) : -1;
-            int roomClear = room != null ? room.GetActiveEnemiesCount(RoomHandler.ActiveEnemyType.RoomClear) : -1;
-            Logger.LogInfo("[E3-clear] checkAlive=" + alive + " roomAll=" + roomAll + " roomClear=" + roomClear);
-        }
-
-        private static int CountAlive(List<AIActor> actors)
-        {
-            int alive = 0;
-            for (int i = 0; i < actors.Count; i++)
+            if (gm.IsFoyer)
             {
-                AIActor actor = actors[i];
-                if (actor != null && actor.healthHaver != null && actor.healthHaver.IsAlive) alive++;
+                gm.IsSelectingCharacter = false;
+                GameManager.IsReturningToBreach = false;
+                if (!ArenaController.StartFirstFloorFromFoyer())
+                {
+                    Logger.LogInfo("[S1-A] consistency test: cannot start 1-1 (need Pilot)");
+                    ArenaController.SetTestMode(false);
+                    _consistencyRunning = false;
+                    yield break;
+                }
+
+                Logger.LogInfo("[S1-A] consistency test: waiting for 1-1 load");
+                float waited = 0f;
+                while (!gm.IsLoadingLevel && waited < 3f)
+                {
+                    waited += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+                while (gm.IsLoadingLevel)
+                {
+                    yield return null;
+                }
+                yield return new WaitForSecondsRealtime(1f);
             }
-            return alive;
+
+            if (!ArenaController.IsInDungeon())
+            {
+                Logger.LogInfo("[S1-A] consistency test: not in dungeon");
+                ArenaController.SetTestMode(false);
+                _consistencyRunning = false;
+                yield break;
+            }
+
+            int ok = 0;
+            for (int i = 1; i <= cycles; i++)
+            {
+                PlayerController p = GetPlayer();
+                if (!ArenaController.Setup(p))
+                {
+                    Logger.LogInfo("[S1-A] consistency test: setup failed at " + i);
+                    break;
+                }
+                ok++;
+
+                yield return new WaitForSecondsRealtime(0.3f);
+                ArenaController.ClearSpawned(GetPlayer());
+                yield return new WaitForSecondsRealtime(0.7f);
+            }
+
+            ArenaController.SetTestMode(false);
+            Logger.LogInfo("[S1-A] consistency test DONE cycles=" + ok + "/" + cycles);
+            _consistencyRunning = false;
         }
 
         private void ToggleTimescale()

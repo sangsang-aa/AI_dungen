@@ -3,14 +3,6 @@ lib/
 decompiled/
 backup/
 
-# Python environment (uv-managed, local only)
-.venv/
-__pycache__/
-*.pyc
-
-# Local portable tools
-.tools/
-
 # Python environment / training artifacts
 .venv/
 __pycache__/
@@ -19,6 +11,9 @@ tb/
 runs/
 *.zip
 *.npz
+
+# Local portable tools
+.tools/
 
 # Build outputs
 game/**/bin/
